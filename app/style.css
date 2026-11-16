@@ -246,6 +246,27 @@ body.no-tabs #tabbar { display: none; }
 .nav2 .btn { flex: 1; }
 .nav2 .btn.prev { flex: 0 0 32%; }
 
+/* ---------- 同伴者のスマホと共有（仕様書 D13〜D15） ---------- */
+.share-btn { position: relative; }
+/* つながっている印（緑）。電波を待っている間は橙 */
+.live { position: absolute; top: 5px; right: 3px; width: 9px; height: 9px; border-radius: 50%; background: #8be8ab; box-shadow: 0 0 0 2px var(--green); }
+.live.off { background: var(--bogey); }
+.play-course .live { position: static; display: inline-block; width: 7px; height: 7px; margin-right: 6px; vertical-align: 1px; box-shadow: none; }
+.qr-box { width: min(240px, 68vw); margin: 10px auto 0; padding: 8px; border-radius: 22px; background: #fff; box-shadow: 0 0 0 1.5px var(--line), var(--shadow); }
+.qr { width: 100%; height: auto; }
+.share-state { margin: 10px 0 0; text-align: center; font-size: 12px; font-weight: 700; color: var(--muted); }
+.sheet > .btn.danger { margin-top: 6px; }
+/* 同伴者のスマホの画面（リンクで開く） */
+.join .who span { max-width: 6.5em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.join-intro { margin: 18px 20px 2px; font-size: 15px; font-weight: 700; line-height: 1.7; color: var(--sub); text-align: center; }
+.mate .j-add { width: auto; flex: none; padding: 0 24px; }
+.ply .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ply.me .lbl { color: var(--green-ink); font-weight: 800; }
+.ply-s { width: 44px; display: flex; justify-content: center; font-family: var(--num); font-size: 16px; font-weight: 700; }
+.ply-t { width: 84px; text-align: right; font-family: var(--num); font-size: 19px; font-weight: 700; }
+.ply-t small { margin-left: 4px; font-size: 12px; color: var(--muted); }
+.sc tr.mine td:first-child { color: var(--green-ink); }
+
 /* ---------- 下から出る板 ---------- */
 #sheet { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; background: rgba(15, 30, 20, 0.38); animation: fade 0.18s; }
 #sheet[hidden] { display: none; }

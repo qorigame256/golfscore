@@ -1,12 +1,24 @@
 "use strict";
 // ゴルフ記録：画面の切り替え・記録の保存・集計・グラフ・バックアップ。
-// 記録は端末の localStorage（キー golfscore.v1）だけに置き、どこにも送らない（仕様書 D3）。
+// 記録は端末の localStorage（キー golfscore.v1）だけに置く（仕様書 D3）。例外は同伴者と共有したラウンドで、
+// 共有している間だけ一部の項目を Firebase に置く（D13。やり取りは share.js）。
 // データの形は仕様書「3. データ形式」。
 
 const KEY = "golfscore.v1";
 const MAX_MATES = 3;
 const PARS = [3, 4, 5, 6];
 const NO_NAME = "名前未入力"; // 名前をまだ入れていないゴルフ場の呼び名（名前はあとから入れられる。仕様書 D10）
+
+// share.js（共有）が読めなかったときの代わり。公開を更新した直後、新しく足したファイルがまだスマホに控えられていないまま
+// 圏外で開くことがある（古いサービスワーカーは、開いたときに index.html・app.js だけを先に新しくするため）。
+// そのときも記録はできるよう、共有を出さずに動かす。share.js が読めていれば何もしない。
+if (typeof DB === "undefined") {
+  Object.assign(globalThis, {
+    DB: "", syncs: new Map(),
+    hostTouch() {}, syncWatch() {}, shareCleanup() {}, stopShare() {}, ensureMateIds() {}, openShareSheet() {},
+    renderJoin() { go("#/"); },
+  });
+}
 
 const $view = document.getElementById("view");
 const $tabbar = document.getElementById("tabbar");
@@ -16,7 +28,8 @@ const $toast = document.getElementById("toast");
 /* ================= 保存 ================= */
 
 function blank() {
-  return { v: 1, courses: [], rounds: [], settings: { lastExport: null, statsRange: "10" } };
+  // myName＝共有したスコアカードに出すホストの名前、shareTrash＝消しそびれた共有の鍵（次に開いたときに消す）
+  return { v: 1, courses: [], rounds: [], settings: { lastExport: null, statsRange: "10", myName: "", shareTrash: [] } };
 }
 
 function load() {
@@ -58,7 +71,8 @@ const rawCourseName = (r) => (courseById(r.courseId) || {}).name || r.courseName
 const courseName = (r) => rawCourseName(r) || NO_NAME;
 const nameless = (r) => !rawCourseName(r);
 const cname = (c) => c.name || NO_NAME;
-const touch = (r) => { r.updatedAt = Date.now(); save(); };
+// 記録を変えたら保存する。共有中のラウンドなら、変えた所を同伴者のスマホへも送る（share.js）
+const touch = (r) => { r.updatedAt = Date.now(); if (r.share) hostTouch(r); save(); };
 
 /* ================= 小さな道具 ================= */
 
@@ -163,6 +177,7 @@ const ICON = {
   share: icon('<path d="M12 15V3.5M7.5 8L12 3.5 16.5 8"/><path d="M5 12v7.5h14V12"/>'),
   open: icon('<path d="M12 3.5V15M7.5 10.5L12 15l4.5-4.5"/><path d="M5 19.5h14"/>'),
   flag: icon('<path d="M7 21V3.5"/><path d="M7 4h10.5l-2.5 3.75L17.5 11.5H7"/>'),
+  people: icon('<circle cx="9" cy="8.5" r="3.2"/><path d="M3.5 19.5c.5-3.3 2.6-5.2 5.5-5.2s5 1.9 5.5 5.2"/><circle cx="16.8" cy="9.3" r="2.5"/><path d="M15.6 14.4c2.6-.3 4.5 1.4 5 4.6"/>'),
 };
 
 const cloud = (tf, fill) => `<path transform="${tf}" d="M9.5 24.5h14a5 5 0 0 0 .8-9.94 7 7 0 0 0-13.4-1.6A5.75 5.75 0 0 0 9.5 24.5z" fill="${fill}"/>`;
@@ -239,7 +254,7 @@ function makeRound(course, nineIdx, { date, weather, mates }) {
     id: uid("r"), date, courseId: course.id, courseName: course.name,
     nines: nineIdx.map((ni) => course.nines[ni].name),
     holes, weather: weather || null, memo: "",
-    mates: mates.map((name) => ({ name, s: holes.map(() => null) })),
+    mates: mates.map((name, j) => ({ id: `m${j}`, name, s: holes.map(() => null) })),
     done: false, createdAt: now, updatedAt: now,
   };
 }
@@ -321,11 +336,13 @@ function route() {
     case "new": renderNew(); break;
     case "play": renderPlay(b, Number(c)); break;
     case "round": if (c === "edit") renderRoundEdit(b); else renderRound(b); break;
+    case "join": renderJoin(b, c); break; // 同伴者のスマホで開くリンクの画面（share.js）
     default: tab = "home"; renderHome();
   }
   document.body.classList.toggle("no-tabs", !tab);
   $tabbar.querySelectorAll("a").forEach((el) => el.classList.toggle("on", el.dataset.tab === tab));
   window.scrollTo(0, 0);
+  syncWatch();
 }
 
 function bar(title, { back = "", right = "" } = {}) {
@@ -522,6 +539,7 @@ function renderPlay(id, i, bump = false) {
   <div class="play-top">
     <button class="bar-btn" data-act="leave">${ICON.back}<span>${r.done ? "戻る" : "ホーム"}</span></button>
     <div class="play-course">${nameless(r) ? `<button class="name-btn" data-act="cname">${ICON.pencil}ゴルフ場名を入れる</button>` : esc(courseName(r))}</div>
+    ${shareBtn(r)}
     <button class="bar-btn" data-act="card" aria-label="スコアカード">${ICON.card}</button>
   </div>
   <div class="play-hole">
@@ -579,6 +597,8 @@ ${r.mates.length ? `<h2 class="rows-h">同伴者</h2><section class="rows">${mat
 }
 
 const holeInfo = (h) => `<span>パー<b>${h.par}</b></span>${h.yd ? `<span>${h.yd}Y</span>` : ""}`;
+// 「同伴者のスマホで入力」のボタン（共有の置き場所が決まっているときだけ）。共有中は緑の点を付ける
+const shareBtn = (r) => (DB ? `<button class="bar-btn share-btn" data-act="share" aria-label="同伴者のスマホで入力">${ICON.people}${r.share ? `<i class="live${(syncs.get(r.share.key) || {}).ok ? "" : " off"}" data-live="${r.share.key}"></i>` : ""}</button>` : "");
 const notesOf = (h) => (Array.isArray(h.notes) ? h.notes : []);
 
 // メモを書き込む。後ろの空の欄は持たない
@@ -652,6 +672,7 @@ function playAct(r, i, el) {
     case "leave": go(r.done ? `#/round/${r.id}` : "#/"); return;
     case "card": go(`#/round/${r.id}`); return;
     case "cname": openNameSheet(r, () => renderPlay(r.id, i)); return;
+    case "share": openShareSheet(r, () => keepScroll(() => renderPlay(r.id, i))); return;
     default: return;
   }
   if (h.p != null && h.s != null && h.p > h.s - 1) h.p = Math.max(0, h.s - 1);
@@ -763,7 +784,7 @@ function renderRound(id) {
     return `<span>${esc(r.nines[hf] || (hf ? "後半" : "前半"))}<b>${x.n ? x.s : "—"}</b></span>`;
   }).join("") + (t.pn ? `<span>パット<b>${t.putts}</b></span>` : "");
 
-  let html = bar("スコアカード", { back: "#/", right: `<a class="bar-btn" href="#/round/${r.id}/edit" aria-label="日付・ゴルフ場・天気・同伴者を直す">${ICON.pencil}</a>` });
+  let html = bar("スコアカード", { back: "#/", right: `${shareBtn(r)}<a class="bar-btn" href="#/round/${r.id}/edit" aria-label="日付・ゴルフ場・天気・同伴者を直す">${ICON.pencil}</a>` });
   html += `<section class="rhead">
 ${fresh ? `<div class="rhead-hello">おつかれさまでした</div>` : ""}
 <div class="rhead-top"><span>${fmtDate(r.date)}</span>${r.weather && WX[r.weather] ? `<span class="wx-s">${WX[r.weather].svg}${WX[r.weather].label}</span>` : ""}</div>
@@ -789,6 +810,7 @@ ${r.done ? `<a class="btn" href="#/play/${r.id}/0">${ICON.pencil}スコアを直
   on(".sc [data-k]", "click", (el) => go(`#/play/${r.id}/${el.dataset.k}`));
   // 名前を入れたら描き直す（終えたばかりの「おつかれさまでした」「ベスト更新」は残す）
   on("[data-act=cname]", "click", () => openNameSheet(r, () => { justFinished = fresh ? r.id : null; keepScroll(() => renderRound(r.id)); }));
+  on("[data-act=share]", "click", () => openShareSheet(r, () => { justFinished = fresh ? r.id : null; keepScroll(() => renderRound(r.id)); }));
   const $memo = document.getElementById("memo");
   let timer = null;
   const saveMemo = () => {
@@ -799,6 +821,7 @@ ${r.done ? `<a class="btn" href="#/play/${r.id}/0">${ICON.pencil}スコアを直
   $memo.addEventListener("blur", saveMemo);
   on("[data-act=del]", "click", () => {
     if (!confirm(`${fmtDate(r.date)}　${courseName(r)}\nこのラウンドを消します。元に戻せません。`)) return;
+    stopShare(r); // 共有していれば、置き場所からも消す
     data.rounds = data.rounds.filter((x) => x.id !== r.id);
     dropNameless(courseById(r.courseId));
     save();
@@ -918,7 +941,8 @@ ${f.mates.length < MAX_MATES ? `<button class="add-btn" data-act="addmate">${ICO
         if (nameless(r) && f.newName.trim()) nameRound(r, f.newName.trim());
         if (r.courseId !== prev) dropNameless(courseById(prev));
         r.weather = f.weather;
-        r.mates = f.mates.filter((m) => m.name.trim()).map((m) => ({ name: m.name.trim(), s: m.j != null ? r.mates[m.j].s : r.holes.map(() => null) }));
+        r.mates = f.mates.filter((m) => m.name.trim()).map((m) => ({ id: m.j != null ? r.mates[m.j].id : undefined, name: m.name.trim(), s: m.j != null ? r.mates[m.j].s : r.holes.map(() => null) }));
+        ensureMateIds(r); // 新しく足した同伴者に番号を振る（共有の置き場所で見分けるため）
         touch(r);
         redit = null;
         toast("保存しました");
@@ -1135,7 +1159,19 @@ function renderSettings() {
 <input type="file" id="import-file" accept=".json,application/json" hidden>
 <p class="hint">読み込んでも今の記録は消えません。同じ記録は二重になりません。</p></div>
 <div class="card"><h2 class="card-h">保存の状態</h2><p class="set-p" id="persist">確認しています…</p></div>`;
+  // 共有したスコアカードに出すあなたの名前（最初に共有するときにも聞く）
+  if (DB) html += `<div class="card"><h2 class="card-h">同伴者との共有</h2><label class="flabel" for="my-name">あなたの名前</label><input class="input" id="my-name" maxlength="12" autocomplete="off" enterkeyhint="done" value="${esc(data.settings.myName || "")}"></div>`;
   $view.innerHTML = html;
+
+  on("#my-name", "change", (el) => {
+    const v = el.value.trim();
+    if (!v) { el.value = data.settings.myName || ""; toast("名前を入れてください"); return; }
+    data.settings.myName = v;
+    for (const r of data.rounds) if (r.share) hostTouch(r);
+    save();
+    toast("保存しました");
+  });
+  on("#my-name", "keydown", (el, e) => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) el.blur(); });
 
   on("[data-act=export]", "click", exportData);
   on("[data-act=import]", "click", () => document.getElementById("import-file").click());
@@ -1197,15 +1233,18 @@ function normRound(r) {
     notes: Array.isArray(h.notes) ? h.notes.slice(0, 20).map((x) => (typeof x === "string" ? x.slice(0, 200) : "")) : [],
     src: Array.isArray(h.src) && h.src.length === 2 ? h.src : null,
   }));
-  return {
+  const out = {
     id: r.id, date: r.date, courseId: typeof r.courseId === "string" ? r.courseId : null, courseName: String(r.courseName ?? ""),
     nines: Array.isArray(r.nines) ? r.nines.map(String) : [],
     holes, weather: WX_KEYS.includes(r.weather) ? r.weather : null, memo: String(r.memo ?? ""),
     mates: (Array.isArray(r.mates) ? r.mates : []).slice(0, MAX_MATES).map((m) => ({
+      id: m && typeof m.id === "string" ? m.id : undefined,
       name: String((m && m.name) || ""), s: holes.map((_, k) => (m && Array.isArray(m.s) && isInt(m.s[k], 1, 20) ? m.s[k] : null)),
     })),
     done: r.done !== false, createdAt: Number(r.createdAt) || Date.now(), updatedAt: Number(r.updatedAt) || Date.now(),
   };
+  ensureMateIds(out); // 共有（share）は持ち込まない。書き出したスマホの共有の鍵を、別のスマホで使い回さないため
+  return out;
 }
 function normCourse(c) {
   return { id: c.id, name: c.name, nines: c.nines.map((n) => ({ name: n.name, holes: n.holes.map((h) => ({ par: h.par, yd: h.yd ?? null })) })), updatedAt: Number(c.updatedAt) || Date.now() };
@@ -1242,6 +1281,7 @@ function importFile(file) {
 /* ================= はじめに ================= */
 
 window.addEventListener("hashchange", route);
+shareCleanup(); // 終えてから7日たった共有・消しそびれた共有を置き場所から消す（share.js）
 route();
 
 // 消されにくい保存をお願いする（iPhone ではホーム画面から開いたときに効く）

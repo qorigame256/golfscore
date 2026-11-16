@@ -9,6 +9,8 @@ const FILES = [
   "index.html",
   "style.css",
   "app.js",
+  "qr.js",
+  "share.js",
   "manifest.webmanifest",
   "icons/icon-180.png",
   "icons/icon-192.png",

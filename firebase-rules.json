@@ -1,0 +1,38 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "s": {
+      "$key": {
+        ".read": "$key.matches(/^[A-Za-z0-9_-]{20,30}$/)",
+        ".write": "$key.matches(/^[A-Za-z0-9_-]{20,30}$/)",
+        ".validate": "newData.hasChildren(['v', 'date', 'holes', 'p'])",
+        "v": { ".validate": "newData.val() === 1" },
+        "course": { ".validate": "newData.isString() && newData.val().length <= 40" },
+        "date": { ".validate": "newData.isString() && newData.val().matches(/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/)" },
+        "nines": {
+          "$n": { ".validate": "$n.matches(/^[01]$/) && newData.isString() && newData.val().length >= 1 && newData.val().length <= 12" }
+        },
+        "holes": {
+          "$h": {
+            ".validate": "$h.matches(/^([0-9]|1[0-7])$/) && newData.hasChildren(['no', 'par'])",
+            "no": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 18" },
+            "par": { ".validate": "newData.isNumber() && newData.val() >= 3 && newData.val() <= 6" },
+            "$other": { ".validate": false }
+          }
+        },
+        "p": {
+          "$pid": {
+            ".validate": "$pid.matches(/^(h|m[0-9]|m[0-9][0-9])$/) && newData.hasChild('name')",
+            "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12" },
+            "s": {
+              "$i": { ".validate": "$i.matches(/^([0-9]|1[0-7])$/) && newData.isNumber() && newData.val() >= 1 && newData.val() <= 20" }
+            },
+            "$other": { ".validate": false }
+          }
+        },
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}
