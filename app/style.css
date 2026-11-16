@@ -165,9 +165,16 @@ body.no-tabs #tabbar { display: none; }
 .play-hole .no { font-family: var(--num); font-size: 44px; font-weight: 700; line-height: 1; }
 .play-hole .no small { font-size: 17px; margin-left: 2px; }
 .play-hole .nine { display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.2); font-family: var(--font); font-size: 12px; font-weight: 700; vertical-align: 8px; }
-.par-pill { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px 7px 14px; border-radius: 999px; background: #fff; color: var(--green-ink); font-size: 14px; font-weight: 700; }
-.par-pill svg { width: 15px; height: 15px; opacity: 0.55; }
-.par-pill:active { background: var(--green-soft); }
+/* 右上はパー・ヤードを文字だけで出す（入力は下の欄。仕様書 D12） */
+.hole-info { display: flex; align-items: baseline; gap: 10px; padding-bottom: 2px; font-size: 13px; font-weight: 700; color: #dff5e7; }
+.hole-info b { margin-left: 3px; font-family: var(--num); font-size: 28px; line-height: 1; color: #fff; }
+.hole-info span + span { font-family: var(--num); font-size: 16px; color: #fff; }
+/* 名前の無いゴルフ場の「ゴルフ場名を入れる」（緑の帯の上に置く） */
+.name-btn { display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 12px; border-radius: 999px; background: rgba(255, 255, 255, 0.2); color: #fff; font-size: 13px; font-weight: 700; }
+.name-btn svg { width: 14px; height: 14px; }
+.name-btn:active { background: rgba(255, 255, 255, 0.34); }
+.rhead .name-btn { height: 36px; padding: 0 14px; font-size: 15px; }
+.noname { color: var(--muted); }
 .dots { display: flex; justify-content: center; gap: 4px; padding: 14px 8px 2px; }
 .dot { width: 13px; height: 13px; flex: none; border-radius: 50%; background: var(--line); }
 .dot.gap { margin-left: 8px; }
@@ -211,6 +218,19 @@ body.no-tabs #tabbar { display: none; }
 .counter button:active { background: var(--green-soft); }
 .counter .n { min-width: 40px; background: none; font-family: var(--num); font-size: 22px; font-weight: 700; text-align: center; }
 .counter .n.unset { color: var(--faint); }
+.yd-wrap { display: flex; align-items: center; gap: 6px; font-family: var(--num); font-size: 15px; font-weight: 700; color: var(--sub); }
+/* 1打ごとのメモ（仕様書 D11）。書いた分だけ欄が縦に伸びる */
+.note-row { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.note-row:first-child { border-top: 0; }
+.note-k { flex: none; width: 46px; padding-top: 8px; font-family: var(--num); font-size: 17px; font-weight: 700; line-height: 1.4; color: var(--green-ink); white-space: nowrap; }
+.note-k small { margin-left: 1px; font-family: var(--font); font-size: 11px; color: var(--sub); }
+.note-row.over .note-k { color: var(--faint); }
+.note-in {
+  flex: 1; min-width: 0; height: 40px; padding: 7px 11px;
+  border: 1.5px solid transparent; border-radius: 12px; background: var(--chip);
+  line-height: 1.5; resize: none; overflow: hidden; outline: none; -webkit-appearance: none; appearance: none;
+}
+.note-in:focus { border-color: var(--sky); background: #fff; box-shadow: 0 0 0 4px rgba(77, 163, 224, 0.15); }
 .mate-name { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
 .mate-name small { display: block; font-size: 11px; color: var(--muted); font-family: var(--num); }
 .play-foot {
@@ -218,6 +238,8 @@ body.no-tabs #tabbar { display: none; }
   padding: 18px 16px calc(12px + var(--safe-b));
   background: linear-gradient(to top, var(--bg) 72%, rgba(244, 248, 245, 0));
 }
+/* 文字を打っている間は帯を浮かせず、いちばん下に置く（キーボードの上で欄に重ならないように） */
+.play.typing .play-foot { position: static; }
 .total { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; padding: 9px 14px; background: var(--card); border-radius: 14px; box-shadow: var(--shadow); font-size: 13px; font-weight: 600; color: var(--sub); }
 .total b { font-family: var(--num); font-size: 22px; color: var(--ink); }
 .nav2 { display: flex; gap: 10px; }
@@ -278,6 +300,19 @@ body.no-tabs #tabbar { display: none; }
 .mark.triple { border-radius: 6px; background: var(--triple); color: #fff; }
 .dash { color: var(--faint); }
 .memo { min-height: 90px; }
+/* スコアカードの下の「ショットのメモ」 */
+.nh { display: block; padding: 10px 0 8px; border-top: 1px solid var(--line); }
+.card-h + .nh { border-top: 0; padding-top: 4px; }
+.nh:active { background: var(--green-pale); }
+.nh-top { display: flex; align-items: center; gap: 8px; }
+.nh-top b { font-family: var(--num); font-size: 19px; color: var(--green-ink); }
+.nh-top b small { margin-left: 1px; font-family: var(--font); font-size: 11px; }
+.nh-par { font-size: 12px; font-weight: 700; color: var(--sub); }
+.nh-top .mark { font-family: var(--num); font-size: 14px; }
+.nh ol { margin: 4px 0 0; padding: 0; list-style: none; }
+.nh li { display: flex; gap: 10px; padding: 3px 0; }
+.nh li span { flex: none; width: 3.4em; padding-top: 1px; font-family: var(--num); font-size: 13px; font-weight: 700; color: var(--muted); }
+.nh li p { flex: 1; min-width: 0; margin: 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ---------- 成績 ---------- */
 .seg { display: flex; margin: 14px 16px 0; padding: 3px; border-radius: 14px; background: var(--chip); }
@@ -369,8 +404,6 @@ input[type="date"].input { display: flex; align-items: center; }
 .par-seg { display: flex; gap: 4px; }
 .par-seg button { width: 40px; height: 38px; border-radius: 11px; background: var(--chip); font-family: var(--num); font-size: 16px; font-weight: 700; color: var(--sub); }
 .par-seg button.on { background: var(--green); color: #fff; }
-.par-seg.big { justify-content: space-between; }
-.par-seg.big button { flex: 1; height: 50px; font-size: 20px; border-radius: 14px; }
 .holes-ed .ydc { text-align: right; }
 .yd { width: 82px; height: 38px; padding: 0 10px; border: 1.5px solid var(--line); border-radius: 11px; text-align: right; font-family: var(--num); outline: none; -webkit-appearance: none; appearance: none; }
 .yd:focus { border-color: var(--sky); }

@@ -6,6 +6,7 @@
 const KEY = "golfscore.v1";
 const MAX_MATES = 3;
 const PARS = [3, 4, 5, 6];
+const NO_NAME = "名前未入力"; // 名前をまだ入れていないゴルフ場の呼び名（名前はあとから入れられる。仕様書 D10）
 
 const $view = document.getElementById("view");
 const $tabbar = document.getElementById("tabbar");
@@ -53,7 +54,10 @@ const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slic
 const courseById = (id) => data.courses.find((c) => c.id === id);
 const roundById = (id) => data.rounds.find((r) => r.id === id);
 // ゴルフ場の名前は登録の今の名前を出す。登録を消したゴルフ場は、ラウンドに控えた名前を出す
-const courseName = (r) => (courseById(r.courseId) || {}).name || r.courseName || "ゴルフ場";
+const rawCourseName = (r) => (courseById(r.courseId) || {}).name || r.courseName || "";
+const courseName = (r) => rawCourseName(r) || NO_NAME;
+const nameless = (r) => !rawCourseName(r);
+const cname = (c) => c.name || NO_NAME;
 const touch = (r) => { r.updatedAt = Date.now(); save(); };
 
 /* ================= 小さな道具 ================= */
@@ -227,7 +231,7 @@ function makeRound(course, nineIdx, { date, weather, mates }) {
   const holes = [];
   for (const ni of nineIdx) {
     course.nines[ni].holes.forEach((h, k) => {
-      holes.push({ no: holeNo(course, ni, k), par: h.par, yd: h.yd ?? null, s: null, p: null, t: null, pen: 0, src: [ni, k] });
+      holes.push({ no: holeNo(course, ni, k), par: h.par, yd: h.yd ?? null, s: null, p: null, t: null, pen: 0, notes: [], src: [ni, k] });
     });
   }
   const now = Date.now();
@@ -381,7 +385,7 @@ function playingCard(r) {
   const at = k === -1 ? r.holes.length - 1 : k;
   return `<a class="card playing" href="#/play/${r.id}/${at}">
 <div class="playing-top"><span class="badge sky">ラウンド中</span><span class="muted">${fmtMD(r.date)}</span></div>
-<div class="playing-name">${esc(courseName(r))}</div>
+<div class="playing-name${nameless(r) ? " noname" : ""}">${esc(courseName(r))}</div>
 <div class="progress"><i style="width:${(t.n / r.holes.length) * 100}%"></i></div>
 <div class="playing-foot"><span>${t.n}/${r.holes.length}ホール　合計 <b>${t.s}</b>${t.n ? `（${signed(t.diff)}）` : ""}</span><span class="go">続きから${ICON.next}</span></div>
 </a>`;
@@ -397,7 +401,7 @@ function roundRow(r, isBest) {
   return `<a class="round-row" href="#/round/${r.id}">
 <div class="date"><div class="m">${m}月</div><div class="d">${d}</div></div>
 <div class="wx">${r.weather && WX[r.weather] ? WX[r.weather].svg : ""}</div>
-<div class="info"><div class="name">${esc(courseName(r))}</div><div class="meta">${esc(r.nines.join("・"))} ${tags.join(" ")}</div></div>
+<div class="info"><div class="name${nameless(r) ? " noname" : ""}">${esc(courseName(r))}</div><div class="meta">${esc(r.nines.join("・"))} ${tags.join(" ")}</div></div>
 <div class="score"><b>${t.n ? t.s : "—"}</b><span>${t.n ? signed(t.diff) : ""}</span></div>
 </a>`;
 }
@@ -405,7 +409,8 @@ function roundRow(r, isBest) {
 /* ================= ラウンドを始める ================= */
 
 function renderNew() {
-  const courses = coursesByRecent();
+  // 名前の無いゴルフ場は見分けられないので、選ぶ欄には出さない（ゴルフ場タブには出る）
+  const courses = coursesByRecent().filter((x) => x.name);
   if (!draft) draft = { date: today(), courseId: courses.length ? courses[0].id : "new", newName: "", first: 0, second: 1, weather: null, mates: [] };
   const f = draft;
   const c = f.courseId === "new" ? null : courseById(f.courseId);
@@ -427,8 +432,7 @@ function renderNew() {
   html += `<div class="field"><label for="f-date">日付</label><input class="input" id="f-date" type="date" value="${esc(f.date)}"></div>
 <div class="field"><span class="flabel">ゴルフ場</span><div class="opts">${shown.map(opt).join("")}${restSel}
 <button class="opt${f.courseId === "new" ? " on" : ""}" data-act="pick" data-id="new"><span class="ring"></span><span><span class="t">新しいゴルフ場</span></span></button></div>
-${f.courseId === "new" ? `<input class="input" id="f-name" style="margin-top:8px" value="${esc(f.newName)}" placeholder="ゴルフ場の名前" maxlength="40" autocomplete="off">` : ""}
-<div class="err" id="f-err" hidden></div></div>
+${f.courseId === "new" ? `<input class="input" id="f-name" style="margin-top:8px" value="${esc(f.newName)}" placeholder="ゴルフ場の名前" maxlength="40" autocomplete="off">` : ""}</div>
 <div class="field pair"><div><label class="flabel" for="f-first">前半</label><select class="input" id="f-first">${nineOpts(f.first)}</select></div>
 <div><label class="flabel" for="f-second">後半</label><select class="input" id="f-second">${nineOpts(f.second)}<option value="none"${f.second === "none" ? " selected" : ""}>なし（9ホール）</option></select></div></div>
 <div class="field"><span class="flabel">天気</span>${weatherRow(f.weather)}</div>
@@ -463,10 +467,10 @@ function startRound() {
   const f = draft;
   let course;
   if (f.courseId === "new") {
+    // 名前は空でもよい（あとからホール画面の上・ラウンドの情報・ゴルフ場タブで入れる。仕様書 D10）
     const name = f.newName.trim();
-    if (!name) return showErr("f-err", "ゴルフ場の名前を入れてください");
-    // 同じ名前で登録済みなら、そのゴルフ場（覚えているパー）を使う
-    course = data.courses.find((x) => x.name === name);
+    // 同じ名前で登録済みなら、そのゴルフ場（覚えているパー）を使う。名前が空なら、いつも新しく作る
+    course = name ? data.courses.find((x) => x.name === name) : null;
     if (!course) {
       course = newCourse(name);
       data.courses.push(course);
@@ -497,9 +501,14 @@ function renderPlay(id, i, bump = false) {
   const t = totals(r);
   const nine = r.nines[i < 9 ? 0 : 1] || "";
   const maxPutt = Math.max(0, shown - 1); // パットは打数より1つ少ない数まで（ティーショットはパットにならない）
+  const notes = notesOf(h);
+  // メモの欄は出ている打数の分だけ。打数を減らしても、書いたメモの欄は消さずに出す
+  const noteN = Math.min(20, Math.max(shown, notes.length));
 
   const dots = r.holes.map((x, k) => `<button class="dot${k === 9 ? " gap" : ""}${x.s != null ? ` ${cat(x.s, x.par)}` : ""}${k === i ? " cur" : ""}" data-act="dot" data-k="${k}" aria-label="${x.no}番ホール"></button>`).join("");
+  const pars = PARS.map((p) => `<button class="${h.par === p ? "on" : ""}" data-act="par" data-n="${p}" aria-label="パー${p}" aria-pressed="${h.par === p}">${p}</button>`).join("");
   const putts = [0, 1, 2, 3, 4, 5].map((n) => `<button class="chip${h.p === n ? " on" : ""}" data-act="putt" data-n="${n}"${n > maxPutt ? " disabled" : ""}>${n}</button>`).join("");
+  const noteRows = Array.from({ length: noteN }, (_, k) => `<div class="note-row${k >= shown ? " over" : ""}"><label class="note-k" for="note-${k}">${k + 1}<small>打目</small></label><textarea class="note-in" id="note-${k}" data-k="${k}" rows="1" maxlength="200" enterkeyhint="done">${esc(notes[k] || "")}</textarea></div>`).join("");
   const tee = [["L", "左"], ["F", "FW"], ["R", "右"]].map(([v, l]) => `<button class="chip wide${h.t === v ? " on" : ""}" data-act="tee" data-v="${v}">${l}</button>`).join("");
   const mates = r.mates.map((m, j) => {
     const v = m.s[i];
@@ -512,12 +521,12 @@ function renderPlay(id, i, bump = false) {
 <header class="play-head">
   <div class="play-top">
     <button class="bar-btn" data-act="leave">${ICON.back}<span>${r.done ? "戻る" : "ホーム"}</span></button>
-    <div class="play-course">${esc(courseName(r))}</div>
+    <div class="play-course">${nameless(r) ? `<button class="name-btn" data-act="cname">${ICON.pencil}ゴルフ場名を入れる</button>` : esc(courseName(r))}</div>
     <button class="bar-btn" data-act="card" aria-label="スコアカード">${ICON.card}</button>
   </div>
   <div class="play-hole">
     <div class="no">${h.no}<small>番</small>${nine ? `<span class="nine">${esc(nine)}</span>` : ""}</div>
-    <button class="par-pill" data-act="holeset">パー${h.par}${h.yd ? `　${h.yd}Y` : ""}${ICON.pencil}</button>
+    <div class="hole-info" id="hole-info">${holeInfo(h)}</div>
   </div>
 </header>
 <div class="dots">${dots}</div>
@@ -528,10 +537,14 @@ function renderPlay(id, i, bump = false) {
 </section>
 <div class="sname">${unset ? `<span class="k-unset">未入力</span>` : `<span class="k-${cat(h.s, h.par)}">${scoreName(h.s, h.par)}</span>`}</div>
 <section class="rows">
+  <div class="row"><span class="lbl">パー</span><div class="par-seg">${pars}</div></div>
+  <div class="row"><label class="lbl" for="yd-in">ヤード</label><div class="yd-wrap"><input class="yd" id="yd-in" type="number" inputmode="numeric" min="1" max="999" value="${h.yd ?? ""}" placeholder="—" enterkeyhint="done"><span>Y</span></div></div>
   <div class="row"><span class="lbl">パット</span><div class="chips">${putts}</div></div>
   ${h.par >= 4 ? `<div class="row"><span class="lbl">ティーショット</span><div class="chips">${tee}</div></div>` : ""}
   <div class="row"><span class="lbl">OB・ペナルティ</span><div class="counter"><button data-act="penminus" aria-label="OB・ペナルティを減らす">−</button><span class="n">${h.pen || 0}</span><button data-act="penplus" aria-label="OB・ペナルティを増やす">＋</button></div></div>
 </section>
+<h2 class="rows-h">ショットのメモ</h2>
+<section class="rows notes">${noteRows}</section>
 ${r.mates.length ? `<h2 class="rows-h">同伴者</h2><section class="rows">${mates}</section>` : ""}
 <footer class="play-foot">
   <div class="total"><span>${t.n}ホール</span><span>合計 <b>${t.s}</b>${t.n ? `（${signed(t.diff)}）` : ""}</span><span>${t.pn ? `パット ${t.putts}` : ""}</span></div>
@@ -542,6 +555,63 @@ ${r.mates.length ? `<h2 class="rows-h">同伴者</h2><section class="rows">${mat
 </footer>
 </div>`;
   on("[data-act]", "click", (el) => playAct(r, i, el));
+  on("#yd-in", "change", (el) => setYard(r, i, el));
+  on("#yd-in", "keydown", (el, e) => { if (e.key === "Enter") el.blur(); });
+
+  // 1打ごとのメモ。書くたびに手元の記録を変え、保存は少し待ってまとめて行う（打数は記録しない）
+  let timer = null;
+  const flush = () => { if (timer) { clearTimeout(timer); timer = null; touch(r); } };
+  on(".note-in", "input", (el) => {
+    grow(el);
+    setNote(h, Number(el.dataset.k), el.value);
+    clearTimeout(timer);
+    timer = setTimeout(flush, 600);
+  });
+  on(".note-in", "blur", flush);
+  // 改行は入れず、キーボードを閉じる（日本語の変換を確定する Enter では閉じない）
+  on(".note-in", "keydown", (el, e) => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); el.blur(); } });
+  $view.querySelectorAll(".note-in").forEach(grow);
+
+  // 文字を打っている間は、下の「次のホール」の帯を浮かせない（iPhone のキーボードの上で欄に重なるため）
+  const $play = $view.querySelector(".play");
+  $play.addEventListener("focusin", (e) => { if (e.target.matches("input, textarea")) $play.classList.add("typing"); });
+  $play.addEventListener("focusout", () => $play.classList.remove("typing"));
+}
+
+const holeInfo = (h) => `<span>パー<b>${h.par}</b></span>${h.yd ? `<span>${h.yd}Y</span>` : ""}`;
+const notesOf = (h) => (Array.isArray(h.notes) ? h.notes : []);
+
+// メモを書き込む。後ろの空の欄は持たない
+function setNote(h, k, v) {
+  const a = notesOf(h).slice();
+  while (a.length <= k) a.push("");
+  a[k] = v;
+  while (a.length && !a[a.length - 1].trim()) a.pop();
+  h.notes = a;
+}
+
+// 書いた分だけ欄の高さを伸ばす
+function grow(el) {
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+}
+
+// ヤードは欄を離れたときに記録する。描き直すと押したボタンが消えて押せなくなるので、上の表示だけ書き換える
+function setYard(r, i, el) {
+  const h = r.holes[i];
+  const v = el.value.trim();
+  const yd = v === "" ? null : Math.round(Number(v));
+  if (yd != null && !(yd >= 1 && yd <= 999)) {
+    el.value = h.yd ?? "";
+    toast("ヤードは1〜999で入れてください");
+    return;
+  }
+  el.value = yd ?? "";
+  if (yd === (h.yd ?? null)) return;
+  h.yd = yd;
+  if (!r.done) writeBack(r, i);
+  touch(r);
+  document.getElementById("hole-info").innerHTML = holeInfo(h);
 }
 
 function playAct(r, i, el) {
@@ -558,6 +628,8 @@ function playAct(r, i, el) {
     case "tee": h.s = shown; h.t = h.t === el.dataset.v ? null : el.dataset.v; break;
     case "penminus": h.s = shown; h.pen = Math.max(0, (h.pen || 0) - 1); break;
     case "penplus": h.s = shown; h.pen = Math.min(9, (h.pen || 0) + 1); break;
+    // パーを変えても打数は記録しない（未入力なら、薄く出す数が新しいパーになる）
+    case "par": h.par = Number(el.dataset.n); if (!r.done) writeBack(r, i); break;
     // 同伴者は入れなくてもよい（D6）。触ったときだけ入る
     case "mminus": case "mplus": case "mset": {
       const m = r.mates[Number(el.dataset.j)];
@@ -579,7 +651,7 @@ function playAct(r, i, el) {
       return;
     case "leave": go(r.done ? `#/round/${r.id}` : "#/"); return;
     case "card": go(`#/round/${r.id}`); return;
-    case "holeset": openHoleSheet(r, i); return;
+    case "cname": openNameSheet(r, () => renderPlay(r.id, i)); return;
     default: return;
   }
   if (h.p != null && h.s != null && h.p > h.s - 1) h.p = Math.max(0, h.s - 1);
@@ -596,40 +668,58 @@ function finishRound(r) {
   go(`#/round/${r.id}`);
 }
 
-// ホールのパー・ヤードを直す板（パーの数字の横の鉛筆から）
-function openHoleSheet(r, i) {
-  const h = r.holes[i];
-  let par = h.par;
-  $sheet.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="${h.no}番ホールのパーとヤード">
+// 名前の無いゴルフ場に名前を入れる板（ホール画面の上・スコアカードの「ゴルフ場名を入れる」から）
+function openNameSheet(r, after) {
+  $sheet.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="ゴルフ場の名前">
 <div class="grip"></div>
-<h3 class="sheet-title">${h.no}番ホール</h3>
-<div class="flabel">パー</div>
-<div class="par-seg big">${PARS.map((p) => `<button data-par="${p}" class="${p === par ? "on" : ""}">${p}</button>`).join("")}</div>
-<div class="flabel">ヤード</div>
-<input class="input" id="sh-yd" type="number" inputmode="numeric" min="1" max="999" value="${h.yd ?? ""}" placeholder="未入力">
+<h3 class="sheet-title">ゴルフ場の名前</h3>
+<input class="input" id="sh-name" maxlength="40" autocomplete="off" enterkeyhint="done" aria-label="ゴルフ場の名前">
+<div class="err" id="sh-err" hidden></div>
 <div class="sheet-btns"><button class="btn" id="sh-cancel">やめる</button><button class="btn primary" id="sh-ok">決定</button></div>
 </div>`;
   $sheet.hidden = false;
   $sheet.onclick = (e) => { if (e.target === $sheet) closeSheet(); };
-  $sheet.querySelectorAll("[data-par]").forEach((b) => {
-    b.onclick = () => {
-      par = Number(b.dataset.par);
-      $sheet.querySelectorAll("[data-par]").forEach((x) => x.classList.toggle("on", x === b));
-    };
-  });
-  $sheet.querySelector("#sh-cancel").onclick = closeSheet;
-  $sheet.querySelector("#sh-ok").onclick = () => {
-    const v = $sheet.querySelector("#sh-yd").value.trim();
-    const yd = v === "" ? null : Math.round(Number(v));
-    if (yd != null && !(yd >= 1 && yd <= 999)) { toast("ヤードは1〜999で入れてください"); return; }
-    h.par = par;
-    h.yd = yd;
-    if (h.p != null && h.s != null && h.p > h.s - 1) h.p = Math.max(0, h.s - 1);
-    if (!r.done) writeBack(r, i);
+  const $in = $sheet.querySelector("#sh-name");
+  const ok = () => {
+    const name = $in.value.trim();
+    if (!name) {
+      const $err = $sheet.querySelector("#sh-err");
+      $err.textContent = "名前を入れてください";
+      $err.hidden = false;
+      return;
+    }
+    nameRound(r, name);
     touch(r);
     closeSheet();
-    renderPlay(r.id, i);
+    after();
   };
+  $sheet.querySelector("#sh-cancel").onclick = closeSheet;
+  $sheet.querySelector("#sh-ok").onclick = ok;
+  $in.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); ok(); } });
+  $in.focus();
+}
+
+// 名前の無いラウンドのゴルフ場に名前を付ける。登録済みと同じ名前なら、そのゴルフ場につなぎ直す
+// （始める画面で登録済みの名前を入れたときと同じ扱い。ホールのパー・ヤードは変えない）
+function nameRound(r, name) {
+  const old = courseById(r.courseId);
+  const same = data.courses.find((x) => x.name === name && x !== old);
+  if (same) {
+    r.courseId = same.id;
+    r.courseName = same.name;
+    dropNameless(old);
+  } else if (old) {
+    old.name = name;
+    old.updatedAt = Date.now();
+    for (const x of data.rounds) if (x.courseId === old.id) x.courseName = name;
+  } else {
+    r.courseName = name; // ゴルフ場の登録を消したあとのラウンドは、控えの名前だけ入れる
+  }
+}
+
+// 名前の無いゴルフ場が、どのラウンドからも使われなくなったら登録から外す（見分けがつかず選べないため）
+function dropNameless(c) {
+  if (c && !c.name && !data.rounds.some((x) => x.courseId === c.id)) data.courses = data.courses.filter((x) => x !== c);
 }
 
 function closeSheet() {
@@ -677,7 +767,7 @@ function renderRound(id) {
   html += `<section class="rhead">
 ${fresh ? `<div class="rhead-hello">おつかれさまでした</div>` : ""}
 <div class="rhead-top"><span>${fmtDate(r.date)}</span>${r.weather && WX[r.weather] ? `<span class="wx-s">${WX[r.weather].svg}${WX[r.weather].label}</span>` : ""}</div>
-<div class="rhead-name">${esc(courseName(r))}</div>
+<div class="rhead-name">${nameless(r) ? `<button class="name-btn" data-act="cname">${ICON.pencil}ゴルフ場名を入れる</button>` : esc(courseName(r))}</div>
 <div class="rhead-nines">${esc(r.nines.join(" → "))}${r.holes.length === 9 ? "（ハーフ）" : ""}</div>
 ${badges.length ? `<div class="rhead-badges">${badges.join("")}</div>` : ""}
 <div class="rhead-score"><b>${t.n ? t.s : "—"}</b>${t.n ? `<span>${signed(t.diff)}</span>` : ""}</div>
@@ -689,6 +779,7 @@ ${badges.length ? `<div class="rhead-badges">${badges.join("")}</div>` : ""}
   }
   html += scorecard(r);
   html += roundBreakdown(r);
+  html += shotNotes(r);
   html += `<div class="card"><h2 class="card-h">メモ</h2><textarea class="input memo" id="memo" rows="3" maxlength="1000">${esc(r.memo)}</textarea></div>`;
   html += `<div class="pad stack" style="padding-bottom:20px">
 ${r.done ? `<a class="btn" href="#/play/${r.id}/0">${ICON.pencil}スコアを直す</a>` : ""}
@@ -696,6 +787,8 @@ ${r.done ? `<a class="btn" href="#/play/${r.id}/0">${ICON.pencil}スコアを直
   $view.innerHTML = html;
 
   on(".sc [data-k]", "click", (el) => go(`#/play/${r.id}/${el.dataset.k}`));
+  // 名前を入れたら描き直す（終えたばかりの「おつかれさまでした」「ベスト更新」は残す）
+  on("[data-act=cname]", "click", () => openNameSheet(r, () => { justFinished = fresh ? r.id : null; keepScroll(() => renderRound(r.id)); }));
   const $memo = document.getElementById("memo");
   let timer = null;
   const saveMemo = () => {
@@ -707,6 +800,7 @@ ${r.done ? `<a class="btn" href="#/play/${r.id}/0">${ICON.pencil}スコアを直
   on("[data-act=del]", "click", () => {
     if (!confirm(`${fmtDate(r.date)}　${courseName(r)}\nこのラウンドを消します。元に戻せません。`)) return;
     data.rounds = data.rounds.filter((x) => x.id !== r.id);
+    dropNameless(courseById(r.courseId));
     save();
     toast("ラウンドを消しました");
     go("#/");
@@ -750,6 +844,18 @@ ${distBlock(st.dist, st.n)}
 </div>`;
 }
 
+// 1打ごとのメモをホールごとにまとめて出す（押すとそのホールの入力画面へ移り、そこで直せる）
+function shotNotes(r) {
+  const blocks = r.holes.map((h, k) => {
+    const items = notesOf(h).map((t, n) => [n, t.trim()]).filter(([, t]) => t);
+    if (!items.length) return "";
+    return `<a class="nh" href="#/play/${r.id}/${k}">
+<div class="nh-top"><b>${h.no}<small>番</small></b><span class="nh-par">パー${h.par}</span>${h.s != null ? `<span class="mark ${cat(h.s, h.par)}">${h.s}</span>` : ""}</div>
+<ol>${items.map(([n, t]) => `<li><span>${n + 1}打目</span><p>${esc(t)}</p></li>`).join("")}</ol></a>`;
+  }).join("");
+  return blocks ? `<div class="card"><h2 class="card-h">ショットのメモ</h2>${blocks}</div>` : "";
+}
+
 function distBlock(dist, n) {
   const segs = CATS.filter((c) => dist[c.key]).map((c) => `<i style="width:${(dist[c.key] / n) * 100}%;background:${c.color}"></i>`).join("");
   const legend = CATS.map((c) => `<div><i style="background:${c.color}"></i>${c.label}<b>${Math.round((dist[c.key] / n) * 100)}%</b></div>`).join("");
@@ -762,17 +868,21 @@ function renderRoundEdit(id) {
   const r = roundById(id);
   if (!r) return go("#/");
   if (!redit || redit.id !== id) {
-    redit = { id, date: r.date, courseId: r.courseId, weather: r.weather, mates: r.mates.map((m, j) => ({ name: m.name, j })) };
+    redit = { id, date: r.date, courseId: r.courseId, newName: "", weather: r.weather, mates: r.mates.map((m, j) => ({ name: m.name, j })) };
   }
   const f = redit;
-  const courses = data.courses.slice().sort((a, b) => a.name.localeCompare(b.name, "ja"));
-  const known = courses.some((c) => c.id === f.courseId);
-  const opts = (known ? "" : `<option value="" selected>${esc(r.courseName)}</option>`)
-    + courses.map((c) => `<option value="${c.id}"${c.id === f.courseId ? " selected" : ""}>${esc(c.name)}</option>`).join("");
+  // 名前の無いゴルフ場は、このラウンドのものだけを出す（ほかは見分けがつかないため）
+  const courses = data.courses.filter((c) => c.name || c.id === r.courseId).sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  const gone = !courseById(r.courseId); // ゴルフ場の登録を消したあとのラウンド
+  const opts = (gone ? `<option value=""${f.courseId === r.courseId ? " selected" : ""}>${esc(r.courseName || NO_NAME)}</option>` : "")
+    + courses.map((c) => `<option value="${c.id}"${c.id === f.courseId ? " selected" : ""}>${esc(cname(c))}</option>`).join("");
+  const sel = courseById(f.courseId);
+  const askName = sel ? !sel.name : !r.courseName; // 選んでいるゴルフ場に名前が無いときは、名前の欄を出す
 
   let html = bar("ラウンドの情報", { back: `#/round/${r.id}` });
   html += `<div class="field"><label for="f-date">日付</label><input class="input" id="f-date" type="date" value="${esc(f.date)}"></div>
-<div class="field"><label for="f-course">ゴルフ場</label><select class="input" id="f-course">${opts}</select></div>
+<div class="field"><label for="f-course">ゴルフ場</label><select class="input" id="f-course">${opts}</select>
+${askName ? `<input class="input" id="f-cname" style="margin-top:8px" value="${esc(f.newName)}" placeholder="ゴルフ場の名前" maxlength="40" autocomplete="off">` : ""}</div>
 <div class="field"><span class="flabel">天気</span>${weatherRow(f.weather)}</div>
 <div class="field"><span class="flabel">同伴者</span>
 ${f.mates.map((m, x) => `<div class="mate"><input class="input" data-mate="${x}" value="${esc(m.name)}" placeholder="名前" maxlength="12" list="mate-names" autocomplete="off"><button class="x-btn" data-act="rmmate" data-x="${x}" aria-label="外す">${ICON.x}</button></div>`).join("")}
@@ -783,7 +893,8 @@ ${f.mates.length < MAX_MATES ? `<button class="add-btn" data-act="addmate">${ICO
 
   const again = () => keepScroll(() => renderRoundEdit(id));
   on("#f-date", "change", (el) => { f.date = el.value; });
-  on("#f-course", "change", (el) => { if (el.value) f.courseId = el.value; });
+  on("#f-course", "change", (el) => { f.courseId = el.value || r.courseId; again(); });
+  on("#f-cname", "input", (el) => { f.newName = el.value; });
   on("[data-mate]", "input", (el) => { f.mates[el.dataset.mate].name = el.value; });
   on("[data-act]", "click", (el) => {
     switch (el.dataset.act) {
@@ -801,8 +912,11 @@ ${f.mates.length < MAX_MATES ? `<button class="add-btn" data-act="addmate">${ICO
         if (!f.date) return showErr("f-err", "日付を入れてください");
         if (f.mates.some((m) => m.j != null && !m.name.trim())) return showErr("f-err", "同伴者の名前を入れてください");
         r.date = f.date;
+        const prev = r.courseId;
         const c = courseById(f.courseId);
         if (c && c.id !== r.courseId) { r.courseId = c.id; r.courseName = c.name; }
+        if (nameless(r) && f.newName.trim()) nameRound(r, f.newName.trim());
+        if (r.courseId !== prev) dropNameless(courseById(prev));
         r.weather = f.weather;
         r.mates = f.mates.filter((m) => m.name.trim()).map((m) => ({ name: m.name.trim(), s: m.j != null ? r.mates[m.j].s : r.holes.map(() => null) }));
         touch(r);
@@ -916,7 +1030,7 @@ function renderCourses() {
     html += `<div class="empty">${EMPTY_ART}ラウンドを始めると、ここにゴルフ場が増えます</div><div class="pad"><a class="btn" href="#/course/new">${ICON.plus}ゴルフ場を追加</a></div>`;
   } else {
     html += `<div class="rounds" style="margin-top:14px">${list.map((c) => `<a class="course-row" href="#/course/${c.id}"><span class="ic">${ICON.flag}</span>
-<div class="info"><div class="name">${esc(c.name)}</div><div class="meta">${esc(c.nines.map((n) => n.name).join("・"))}　${courseParText(c)}${played[c.id] ? `　${played[c.id]}回` : ""}</div></div><span class="chev">${ICON.next}</span></a>`).join("")}</div>`;
+<div class="info"><div class="name${c.name ? "" : " noname"}">${esc(cname(c))}</div><div class="meta">${esc(c.nines.map((n) => n.name).join("・"))}　${courseParText(c)}${played[c.id] ? `　${played[c.id]}回` : ""}</div></div><span class="chev">${ICON.next}</span></a>`).join("")}</div>`;
   }
   $view.innerHTML = html;
 }
@@ -977,7 +1091,7 @@ ${c.nines.length > 1 ? `<button class="btn danger small" data-act="rmnine" data-
       }
       case "delcourse": {
         const orig = courseById(key);
-        if (!orig || !confirm(`「${orig.name}」を消しますか？\n過去のラウンドの記録は残ります。`)) return;
+        if (!orig || !confirm(`「${cname(orig)}」を消しますか？\n過去のラウンドの記録は残ります。`)) return;
         data.courses = data.courses.filter((x) => x.id !== key);
         save();
         cedit = null;
@@ -1080,6 +1194,7 @@ function validCourse(c) {
 function normRound(r) {
   const holes = r.holes.map((h, k) => ({
     no: isInt(h.no, 1, 18) ? h.no : k + 1, par: h.par, yd: h.yd ?? null, s: h.s ?? null, p: h.p ?? null, t: h.t ?? null, pen: h.pen ?? 0,
+    notes: Array.isArray(h.notes) ? h.notes.slice(0, 20).map((x) => (typeof x === "string" ? x.slice(0, 200) : "")) : [],
     src: Array.isArray(h.src) && h.src.length === 2 ? h.src : null,
   }));
   return {
