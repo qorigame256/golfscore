@@ -132,6 +132,7 @@ function setLive(sy, ok) {
 
 function schedulePush(sy, delay = 250) {
   clearTimeout(sy.timer);
+  if (syncs.get(sy.key) !== sy) return; // 閉じたやり取り（共有をやめた・画面を離れた）は、通信中だった送信が失敗しても送り直さない
   sy.timer = setTimeout(() => pushNow(sy), delay);
 }
 
@@ -312,12 +313,13 @@ function shareCleanup() {
   for (const k of before) dropRemote(k);
 }
 
-// 受け取りを続けるのは、終えていない共有ラウンドと、いま見ている共有ラウンドだけ（画面が変わるたびに呼ぶ）
+// 受け取りを続けるのは、終えていない共有ラウンドと、いま見ている共有ラウンドだけ（画面が変わるたびに呼ぶ）。
+// 送れていない変更が残っているラウンドは、終えて画面を離れてもつないだままにする（圏外で終えた最後の打数を、電波が戻ったら送るため）
 function syncWatch() {
   if (!DB) return;
   const [a, b] = routeParts();
   const viewing = (a === "play" || a === "round") ? b : null;
-  const want = new Set(data.rounds.filter((r) => r.share && (!r.done || r.id === viewing)).map((r) => r.share.key));
+  const want = new Set(data.rounds.filter((r) => r.share && (!r.done || r.id === viewing || (r.share.pending && Object.keys(r.share.pending).length > 0))).map((r) => r.share.key));
   for (const sy of [...syncs.values()]) {
     if (sy.rid ? !want.has(sy.key) : !(a === "join" && b === sy.key)) closeSync(sy);
   }
@@ -383,7 +385,7 @@ function openShareSheet(r, after) {
       $sheet.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-label="同伴者のスマホで入力">
 <div class="grip"></div>
 <h3 class="sheet-title">同伴者のスマホで入力</h3>
-<div class="qr-box">${QR.svg(link)}</div>
+<div class="qr-box">${typeof QR === "undefined" ? "" : QR.svg(link)}</div>
 <p class="share-state" id="sh-state" data-key="${r.share.key}">${sy && sy.ok ? "つながっています" : "電波を待っています"}</p>
 <div class="sheet-btns"><button class="btn" id="sh-close">閉じる</button><button class="btn primary" id="sh-send">${ICON.share}リンクを送る</button></div>
 <button class="btn danger small" id="sh-stop">共有をやめる</button>
@@ -532,9 +534,12 @@ function joinWho(key, sy, md) {
     const $n = document.getElementById("j-name");
     const name = $n.value.trim();
     if (!name) return showErr("j-err", "名前を入れてください");
+    // 番号は 10〜99 の空きから無作為に選ぶ。若い順に取ると、2台が同時に入ったときに同じ番号になり、2人が1人分の打数を書き合う。
+    // ホストが足す同伴者は 0 から振る（ensureMateIds）ので、ホストとも重ならない
     const used = new Set(md.players.map((p) => p.id));
-    let n = 0;
-    while (used.has(`m${n}`)) n++;
+    const free = [];
+    for (let k = 10; k < 100; k++) if (!used.has(`m${k}`)) free.push(k);
+    const n = free[Math.floor(Math.random() * free.length)];
     sy.pid = `m${n}`;
     sy.pending[`p/m${n}/name`] = name.slice(0, 12);
     sy.saveState();

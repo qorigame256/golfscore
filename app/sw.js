@@ -31,16 +31,17 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET" || !e.request.url.startsWith(self.registration.scope)) return;
-  e.respondWith(
-    caches.open(CACHE).then(async (cache) => {
-      const cached = await cache.match(e.request, { ignoreSearch: true });
-      const fresh = fetch(e.request)
-        .then((res) => {
-          if (res.ok) cache.put(e.request, res.clone());
-          return res;
-        })
-        .catch(() => cached);
-      return cached || fresh;
-    })
-  );
+  const work = caches.open(CACHE).then(async (cache) => {
+    const cached = await cache.match(e.request, { ignoreSearch: true });
+    const fresh = fetch(e.request)
+      .then(async (res) => {
+        if (res.ok) await cache.put(e.request, res.clone());
+        return res;
+      })
+      .catch(() => cached);
+    return { cached, fresh };
+  });
+  e.respondWith(work.then((w) => w.cached || w.fresh));
+  // 保存済みの版を先に返したあとも、裏の更新（取ってきて控える）が終わるまで止められないようにする
+  e.waitUntil(work.then((w) => w.fresh).catch(() => {}));
 });

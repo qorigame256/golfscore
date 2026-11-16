@@ -38,10 +38,13 @@ function load() {
     raw = localStorage.getItem(KEY);
     if (!raw) return blank();
     const d = JSON.parse(raw);
+    // 形が違うものを空として扱うと、次の保存で元の中身を上書きして失う。下の catch で退避させる
+    const rows = (a) => Array.isArray(a) && a.every((x) => x && typeof x === "object");
+    if (!d || typeof d !== "object" || !rows(d.courses) || !rows(d.rounds)) throw new Error("保存データの形が違います");
     return {
       v: 1,
-      courses: Array.isArray(d.courses) ? d.courses : [],
-      rounds: Array.isArray(d.rounds) ? d.rounds : [],
+      courses: d.courses,
+      rounds: d.rounds,
       settings: Object.assign(blank().settings, d.settings || {}),
     };
   } catch (e) {
@@ -288,7 +291,7 @@ function holeStats(rounds) {
   const dist = Object.fromEntries(CATS.map((c) => [c.key, 0]));
   for (const h of hs) dist[cat(h.s, h.par)]++;
   const byPar = {};
-  for (const p of [3, 4, 5]) {
+  for (const p of PARS) {
     const x = hs.filter((h) => h.par === p);
     byPar[p] = { n: x.length, avg: mean(x.map((h) => h.s)) };
   }
@@ -989,7 +992,7 @@ function renderStats() {
 ${st.teeN ? `<div class="lr"><div class="bar100"><i style="width:${lrPct(st.left)}%;background:#a9bcc9"></i><i style="width:${lrPct(st.fw)}%;background:#2f9e5b"></i><i style="width:${lrPct(st.right)}%;background:#a9bcc9"></i></div>
 <div class="lr-lbl"><span>左 ${Math.round(lrPct(st.left))}%</span><span>FW ${Math.round(lrPct(st.fw))}%</span><span>右 ${Math.round(lrPct(st.right))}%</span></div></div>` : ""}
 <div class="kv"><span class="k">OB・ペナルティ</span><span class="v">${fix1((st.pen / st.n) * 18)}<small>18ホールあたり</small></span></div></div>`;
-      html += `<div class="card"><h2 class="card-h">パー別の平均打数</h2>${[3, 4, 5].map((p) => {
+      html += `<div class="card"><h2 class="card-h">パー別の平均打数</h2>${PARS.filter((p) => p <= 5 || st.byPar[p].n).map((p) => {
         const b = st.byPar[p];
         return `<div class="kv"><span class="k">パー${p}</span><span class="v">${b.n ? `${b.avg.toFixed(2)}<small>${signedF(b.avg - p, 2)}</small>` : "—"}</span></div>`;
       }).join("")}</div>`;
@@ -1212,17 +1215,18 @@ async function exportData() {
 
 const isInt = (v, lo, hi) => Number.isInteger(v) && v >= lo && v <= hi;
 const okInt = (v, lo, hi) => v == null || isInt(v, lo, hi);
+const okId = (v) => typeof v === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(v); // id は画面の HTML にそのまま入るので、記号を通さない
 
 function validHole(h) {
   return h && isInt(h.par, 3, 6) && okInt(h.s, 1, 20) && okInt(h.p, 0, 19) && okInt(h.yd, 1, 999) && okInt(h.pen, 0, 9)
     && (h.t == null || ["L", "F", "R"].includes(h.t));
 }
 function validRound(r) {
-  return r && typeof r.id === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.date) && Array.isArray(r.holes)
+  return r && okId(r.id) && /^\d{4}-\d{2}-\d{2}$/.test(r.date) && Array.isArray(r.holes)
     && (r.holes.length === 9 || r.holes.length === 18) && r.holes.every(validHole);
 }
 function validCourse(c) {
-  return c && typeof c.id === "string" && typeof c.name === "string" && Array.isArray(c.nines) && c.nines.length >= 1
+  return c && okId(c.id) && typeof c.name === "string" && Array.isArray(c.nines) && c.nines.length >= 1
     && c.nines.every((n) => n && typeof n.name === "string" && Array.isArray(n.holes) && n.holes.length === 9
       && n.holes.every((h) => h && isInt(h.par, 3, 6) && okInt(h.yd, 1, 999)));
 }
@@ -1234,11 +1238,11 @@ function normRound(r) {
     src: Array.isArray(h.src) && h.src.length === 2 ? h.src : null,
   }));
   const out = {
-    id: r.id, date: r.date, courseId: typeof r.courseId === "string" ? r.courseId : null, courseName: String(r.courseName ?? ""),
+    id: r.id, date: r.date, courseId: okId(r.courseId) ? r.courseId : null, courseName: String(r.courseName ?? ""),
     nines: Array.isArray(r.nines) ? r.nines.map(String) : [],
     holes, weather: WX_KEYS.includes(r.weather) ? r.weather : null, memo: String(r.memo ?? ""),
     mates: (Array.isArray(r.mates) ? r.mates : []).slice(0, MAX_MATES).map((m) => ({
-      id: m && typeof m.id === "string" ? m.id : undefined,
+      id: m && okId(m.id) ? m.id : undefined,
       name: String((m && m.name) || ""), s: holes.map((_, k) => (m && Array.isArray(m.s) && isInt(m.s[k], 1, 20) ? m.s[k] : null)),
     })),
     done: r.done !== false, createdAt: Number(r.createdAt) || Date.now(), updatedAt: Number(r.updatedAt) || Date.now(),

@@ -11,9 +11,11 @@
         "course": { ".validate": "newData.isString() && newData.val().length <= 40" },
         "date": { ".validate": "newData.isString() && newData.val().matches(/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$/)" },
         "nines": {
+          ".validate": "newData.hasChildren()",
           "$n": { ".validate": "$n.matches(/^[01]$/) && newData.isString() && newData.val().length >= 1 && newData.val().length <= 12" }
         },
         "holes": {
+          ".validate": "newData.hasChildren()",
           "$h": {
             ".validate": "$h.matches(/^([0-9]|1[0-7])$/) && newData.hasChildren(['no', 'par'])",
             "no": { ".validate": "newData.isNumber() && newData.val() >= 1 && newData.val() <= 18" },
@@ -22,10 +24,12 @@
           }
         },
         "p": {
+          ".validate": "newData.hasChildren()",
           "$pid": {
             ".validate": "$pid.matches(/^(h|m[0-9]|m[0-9][0-9])$/) && newData.hasChild('name')",
             "name": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 12" },
             "s": {
+              ".validate": "newData.hasChildren()",
               "$i": { ".validate": "$i.matches(/^([0-9]|1[0-7])$/) && newData.isNumber() && newData.val() >= 1 && newData.val() <= 20" }
             },
             "$other": { ".validate": false }
